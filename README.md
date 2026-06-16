@@ -2,7 +2,7 @@
 
 A project management Command-Line Interface (CLI) application built with Python. This project demonstrates high-level software architecture, object-oriented design, and robust data persistence.
 
-## 🚀 Key Features
+## Key Features
 
 - **Multi-User Support**: Assign projects and tasks to specific users with a clear one-to-many relationship.
 - **Robust Persistence**: Local JSON-based storage with comprehensive error handling (IO, Permission, Corruption).
@@ -29,7 +29,7 @@ The codebase is strictly organized to ensure clear separation of concerns:
 - `main.py`: Application entry point.
 - `tests/test_app.py`: Full test suite for validating all application logic.
 
-## 📦 Installation & Setup
+## Installation & Setup
 
 ### Prerequisites
 - Python 3.10+
@@ -73,14 +73,14 @@ python main.py complete-task --task-id <TASK_ID>
 python main.py list
 ```
 
-## 🧪 Testing
+## Testing
 
 To run the test suite:
 ```bash
 python -m pytest tests/test_app.py
 ```
 
-## 📝 Logging
+## Logging
 
 The application maintains a debug log in `app.log`, capturing all operations and errors for troubleshooting.
 
