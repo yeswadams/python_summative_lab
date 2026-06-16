@@ -1,3 +1,5 @@
 .mypy_cache
 str.md
 .pytest_cache
+app.log
+app.md
