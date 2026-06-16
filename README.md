@@ -18,7 +18,7 @@ A project management Command-Line Interface (CLI) application built with Python.
 - **Date Formatting**: Human-readable creation dates using `python-dateutil`.
 - **Comprehensive Testing**: 100% logic coverage with `pytest` and mocked storage layers.
 
-## 🛠 Modular Architecture
+## Modular Architecture
 
 The codebase is strictly organized to ensure clear separation of concerns:
 
@@ -46,7 +46,7 @@ Or using pip:
 pip install rich pydantic python-dateutil pytest
 ```
 
-## 🎮 Usage
+## Usage
 
 ### Add a New User
 ```bash
