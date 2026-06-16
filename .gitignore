@@ -1,2 +1,3 @@
 .mypy_cache
 str.md
+.pytest_cache
