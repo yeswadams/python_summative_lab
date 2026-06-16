@@ -1,129 +1,178 @@
 import argparse
-from src.storage_manager import StorageManager
+import sys
+import logging
+from typing import Optional
+from pydantic import BaseModel, Field, ValidationError
+from dateutil.parser import parse
 from rich.console import Console
 from rich.table import Table
+from rich.panel import Panel
+from src.storage import Storage
+from src.models import User, Project, Task
 
 console = Console()
+logger = logging.getLogger("PM-CLI.cli")
 
-def handle_add_user(args, storage):
-    users = storage.load_data()
-    if args.name in users:
-        console.print(f"[bold red]Error:[/bold red] User '{args.name}' already exists.")
-        return
-    users[args.name] = User(args.name)
-    storage.save_data(users)
-    console.print(f"[bold green]Success:[/bold green] User '{args.name}' created.")
+def format_date(iso_date: str) -> str:
+    """Formats an ISO date string into a human-readable format."""
+    try:
+        dt = parse(iso_date)
+        return dt.strftime("%b %d, %Y")
+    except Exception:
+        return iso_date
 
-def handle_add_project(args, storage):
-    users = storage.load_data()
-    if args.user not in users:
-        console.print(f"[bold red]Error:[/bold red] User '{args.user}' not found. Create them first.")
-        return
-    
-    user = users[args.user]
-    # Check if project name already exists for this user
-    if any(p.title.lower() == args.title.lower() for p in user.projects):
-        console.print(f"[bold yellow]Warning:[/bold yellow] Project '{args.title}' already exists for {args.user}.")
-        return
+class UserInput(BaseModel):
+    name: str = Field(..., min_length=2, max_length=50)
 
-    project = user.add_project(args.title)
-    storage.save_data(users)
-    console.print(f"[bold green]Success:[/bold green] Project '{project.title}' (ID: {project.id}) added to {args.user}.")
+class ProjectInput(BaseModel):
+    user: str
+    title: str = Field(..., min_length=2, max_length=100)
 
-def handle_add_task(args, storage):
-    users = storage.load_data()
-    project_found = False
-    
-    for user in users.values():
-        for project in user.projects:
-            if project.title.lower() == args.project.lower() or project.id == args.project:
-                task = project.add_task(args.title)
-                project_found = True
-                break
-        if project_found:
-            break
+class TaskInput(BaseModel):
+    project: str
+    title: str = Field(..., min_length=2, max_length=200)
 
-    if project_found:
-        storage.save_data(users)
-        console.print(f"[bold green]Success:[/bold green] Task '{args.title}' (ID: {task.id}) added to project '{args.project}'.")
-    else:
-        console.print(f"[bold red]Error:[/bold red] Project '{args.project}' not found anywhere in system.")
-
-def handle_list_all(args, storage):
-    users = storage.load_data()
-    if not users:
-        console.print("[yellow]The system is currently empty.[/yellow]")
-        return
-
-    table = Table(title="Project Management Dashboard", show_lines=True)
-    table.add_column("User", style="cyan", no_wrap=True)
-    table.add_column("Projects [ID]", style="magenta")
-    table.add_column("Tasks [ID] (Status)", style="green")
-
-    for user_name, user_obj in users.items():
-        if not user_obj.projects:
-            table.add_row(user_name, "[italic dim]No Projects[/italic dim]", "-")
-            continue
+def handle_add_user(args, storage: Storage):
+    try:
+        data = UserInput(name=args.name)
+        users = storage.load_data()
+        if data.name in users:
+            console.print(Panel(f"[bold red]Error:[/bold red] User '{data.name}' already exists.", border_style="red"))
+            return
         
-        for project in user_obj.projects:
-            task_strs = []
-            for t in project.tasks:
-                status = "✅ Done" if t.is_completed else "⏳ Pending"
-                task_strs.append(f"• {t.title} [{t.id}] ({status})")
-            
-            tasks_output = "\n".join(task_strs) if task_strs else "[italic dim]No Tasks[/italic dim]"
-            table.add_row(user_name, f"{project.title} [{project.id}]", tasks_output)
-            
-    console.print(table)
+        users[data.name] = User(name=data.name)
+        storage.save_data(users)
+        console.print(Panel(f"[bold green]Success:[/bold green] User '{data.name}' created successfully.", border_style="green"))
+    except ValidationError as e:
+        console.print(Panel(f"[bold red]Validation Error:[/bold red] {e.errors()[0]['msg']}", border_style="red"))
 
-def handle_complete_task(args, storage):
+def handle_add_project(args, storage: Storage):
+    try:
+        data = ProjectInput(user=args.user, title=args.title)
+        users = storage.load_data()
+        if data.user not in users:
+            console.print(Panel(f"[bold red]Error:[/bold red] User '{data.user}' not found.", border_style="red"))
+            return
+        
+        user = users[data.user]
+        user.add_project(data.title)
+        storage.save_data(users)
+        console.print(Panel(f"[bold green]Success:[/bold green] Project '{data.title}' added to user '{data.user}'.", border_style="green"))
+    except ValidationError as e:
+        console.print(Panel(f"[bold red]Validation Error:[/bold red] {e.errors()[0]['msg']}", border_style="red"))
+
+def handle_add_task(args, storage: Storage):
+    try:
+        data = TaskInput(project=args.project, title=args.title)
+        users = storage.load_data()
+        found = False
+        for user in users.values():
+            for project in user.projects:
+                if project.title == data.project or project.id == data.project:
+                    project.add_task(data.title)
+                    found = True
+                    break
+            if found: break
+        
+        if found:
+            storage.save_data(users)
+            console.print(Panel(f"[bold green]Success:[/bold green] Task added to project '{data.project}'.", border_style="green"))
+        else:
+            console.print(Panel(f"[bold red]Error:[/bold red] Project '{data.project}' not found.", border_style="red"))
+    except ValidationError as e:
+        console.print(Panel(f"[bold red]Validation Error:[/bold red] {e.errors()[0]['msg']}", border_style="red"))
+
+def handle_complete_task(args, storage: Storage):
     users = storage.load_data()
-    task_updated = False
-    
+    found = False
     for user in users.values():
         for project in user.projects:
             for task in project.tasks:
                 if task.id == args.task_id:
                     task.mark_complete()
-                    task_updated = True
+                    found = True
                     break
-            if task_updated: break
-        if task_updated: break
-
-    if task_updated:
+            if found: break
+        if found: break
+    
+    if found:
         storage.save_data(users)
-        console.print(f"[bold green]Success:[/bold green] Task [{args.task_id}] marked complete!")
+        console.print(Panel(f"[bold green]Success:[/bold green] Task '{args.task_id}' marked as complete.", border_style="green"))
     else:
-        console.print(f"[bold red]Error:[/bold red] Task ID [{args.task_id}] could not be found.")
+        console.print(Panel(f"[bold red]Error:[/bold red] Task ID '{args.task_id}' not found.", border_style="red"))
+
+def handle_list(args, storage: Storage):
+    users = storage.load_data()
+    if not users:
+        console.print("[yellow]No data found in the system.[/yellow]")
+        return
+
+    table = Table(title="Project Tracker Dashboard", show_lines=True, header_style="bold magenta")
+    table.add_column("User", style="cyan")
+    table.add_column("Projects", style="green")
+    table.add_column("Tasks (Status)", style="white")
+
+    for user in users.values():
+        if not user.projects:
+            table.add_row(user.name, "[dim]No projects[/dim]", "-")
+            continue
+        
+        for project in user.projects:
+            project_created = format_date(project.created_at)
+            task_info = []
+            for task in project.tasks:
+                status = "[green]✔[/green]" if task.is_completed else "[yellow]⏳[/yellow]"
+                task_info.append(f"{status} {task.title} ([dim]{task.id}[/dim])")
+            
+            tasks_display = "\n".join(task_info) if task_info else "[dim]No tasks[/dim]"
+            table.add_row(
+                user.name, 
+                f"{project.title}\n([dim]{project.id}[/dim])\n[italic dim]Created: {project_created}[/italic dim]", 
+                tasks_display
+            )
+
+    console.print(table)
 
 def build_cli():
-    parser = argparse.ArgumentParser(description="Multi-User Project Management Command-Line Tool")
+    parser = argparse.ArgumentParser(description="Advanced Project Tracker CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # User Subcommand
-    u_parser = subparsers.add_parser("add-user", help="Register a new system user")
-    u_parser.add_argument("--name", required=True, help="Unique name of the user")
-    u_parser.set_defaults(func=handle_add_user)
+    # add-user
+    user_parser = subparsers.add_parser("add-user", help="Add a new user")
+    user_parser.add_argument("--name", required=True, help="User name")
+    user_parser.set_defaults(func=handle_add_user)
 
-    # Project Subcommand
-    p_parser = subparsers.add_parser("add-project", help="Assign a new project to an existing user")
-    p_parser.add_argument("--user", required=True, help="Name of the user owner")
-    p_parser.add_argument("--title", required=True, help="Title of the project")
-    p_parser.set_defaults(func=handle_add_project)
+    # add-project
+    project_parser = subparsers.add_parser("add-project", help="Add a new project")
+    project_parser.add_argument("--user", required=True, help="User name")
+    project_parser.add_argument("--title", required=True, help="Project title")
+    project_parser.set_defaults(func=handle_add_project)
 
-    # Task Subcommand
-    t_parser = subparsers.add_parser("add-task", help="Append a task to an existing project")
-    t_parser.add_argument("--project", required=True, help="Project title or Project ID")
-    t_parser.add_argument("--title", required=True, help="Task description summary")
-    t_parser.set_defaults(func=handle_add_task)
+    # add-task
+    task_parser = subparsers.add_parser("add-task", help="Add a new task")
+    task_parser.add_argument("--project", required=True, help="Project ID or title")
+    task_parser.add_argument("--title", required=True, help="Task title")
+    task_parser.set_defaults(func=handle_add_task)
 
-    # Complete Task Subcommand
-    c_parser = subparsers.add_parser("complete-task", help="Mark a specific task completed via its unique ID")
-    c_parser.add_argument("--task-id", required=True, help="8-character unique Task alphanumeric hash")
-    c_parser.set_defaults(func=handle_complete_task)
+    # complete-task
+    complete_parser = subparsers.add_parser("complete-task", help="Complete a task")
+    complete_parser.add_argument("--task-id", required=True, help="Task ID")
+    complete_parser.set_defaults(func=handle_complete_task)
 
-    # List Subcommand
-    l_parser = subparsers.add_parser("list", help="Render interactive system dashboard data matrix")
-    l_parser.set_defaults(func=handle_list_all)
+    # list
+    list_parser = subparsers.add_parser("list", help="List all users, projects, and tasks")
+    list_parser.set_defaults(func=handle_list)
 
     return parser
+
+def main_execution():
+    parser = build_cli()
+    args = parser.parse_args()
+    storage = Storage()
+
+    try:
+        args.func(args, storage)
+    except Exception as e:
+        logger.exception("A global error occurred during execution.")
+        console.print(Panel(f"[bold red]Unexpected Error:[/bold red] {str(e)}", border_style="red"))
+        sys.exit(1)
